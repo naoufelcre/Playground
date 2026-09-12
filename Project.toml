@@ -1,0 +1,53 @@
+name = "DensityModel"
+uuid = "92816512-01c4-4d34-a2b5-8c1e43433bcc"
+authors = ["Naoufel Cresson"]
+version = "0.1.0"
+
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+EvolvingDomains = "f9bd8acb-b7a8-42b3-8348-bb9bbfd76943"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+Gridap = "56d4f2e9-7ea1-5844-9cf6-b9c51ca7ce8e"
+GridapEmbedded = "8838a6a3-0006-4405-b874-385995508d5d"
+ImageFiltering = "6a3955dd-da59-5b1f-98d4-e7296123deb5"
+ImageMorphology = "787d08f9-d448-5407-9aad-5290dd7ab264"
+Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+IterativeSolvers = "42fd0dbc-a981-5370-80f2-aaf504508153"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MiniQhull = "978d7f02-9e05-4691-894f-ae31a51d76ca"
+PlotUtils = "995b91a9-d308-5afd-9ec6-746e21dbc043"
+Preconditioners = "af69fa37-3177-5a40-98ee-561f696e4fcd"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+StaticAssembler = "4d6bac4e-e066-404e-8ec1-1925a1cacd63"
+
+[sources]
+EvolvingDomains = {path = "../EvolvingDomains.jl"}
+StaticAssembler = {path = "../StaticAssembler.jl"}
+
+[compat]
+CairoMakie = "=0.15.8"
+EvolvingDomains = "=0.4.0"
+FileIO = "=1.18.0"
+Gridap = "=0.19.7"
+GridapEmbedded = "=0.9.8"
+ImageFiltering = "=0.7.12"
+ImageMorphology = "=0.4.7"
+Images = "=0.26.2"
+IterativeSolvers = "=0.9.4"
+JSON = "=1.4.0"
+MiniQhull = "=0.4.0"
+PlotUtils = "=1.4.4"
+Preconditioners = "=0.6.1"
+StaticArrays = "=1.9.16"
+StaticAssembler = "=0.1.0"
+julia = "1.11"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

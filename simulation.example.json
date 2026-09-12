@@ -1,0 +1,9 @@
+{
+  "seed": "seeded-holes-1",
+  "horizon": 1.0,
+  "export": {
+    "save_stride": 100,
+    "compact": true,
+    "images": false
+  }
+}
