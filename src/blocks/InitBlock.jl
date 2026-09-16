@@ -4,18 +4,18 @@ using .Patterns
 function init_simulation(; seed::String,
         horizon = 1.0, reinit_freq = 1, min_island_nodes = 5)
 
-    p    = AdimensionalParameters(ξ=0.1, A=0.1, ν=0.49, m=2)
+    p    = AdimensionalParameters(ξ=0.001, A=0.1, ν=0.49, m=2)
     geom = random_blob_geometry(; seed, nx=301, ny=301)
     info = grid_info(geom.grid)
     Δt   = MIN_TIMESTEP
 
     ε, ε_target = initialize_strain(info), initialize_strain(info)
-    ρ        = initialize_density(info, SmoothPatchyTissuePattern(; seed), geom)
+    ρ        = initialize_density(info, PatchDensityPattern(; seed), geom)
     @inbounds for i in eachindex(ρ.data)
         geom.levelset[i] < 0.0 || continue
         ε[1].data[i] = ε[2].data[i] = 0.5 * (inv(ρ.data[i]) - 1.0)
     end
-    α        = friction_field(info, RadialFrictionPattern())
+    α        = stiffness_field(info, PatchStiffnessPattern(; seed))
     ρ_target = CartesianMeshField(zeros(Float64, prod(info.dims)), info)
     v_grid   = CartesianMeshField(zeros(VectorValue{2,Float64}, prod(info.dims)), info)
 
@@ -27,7 +27,7 @@ end
     initialize(; seed, horizon, nsteps) -> (state, backend, run)
 
 Build the full simulation from a seed: physical state (random-blob geometry,
-patchy density, radial substrate friction), projected backend (kernel + CG
+patchy density, radial substrate stiffness), projected backend (kernel + CG
 buffers), and horizon-based run configuration. `nsteps` optionally caps the
 accepted steps for tests and diagnostics.
 """

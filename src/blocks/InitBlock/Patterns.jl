@@ -8,10 +8,10 @@ using EvolvingDomains
 using EvolvingDomains.Geometric
 using Random
 
-export AbstractDensityPattern, UniformTissuePattern, SmoothPatchyTissuePattern,
+export AbstractDensityPattern, UniformTissuePattern, PatchDensityPattern,
        initialize_density
-export AbstractFrictionPattern, UniformFrictionPattern, RadialFrictionPattern,
-       friction_field
+export AbstractStiffnessPattern, UniformStiffnessPattern, RadialStiffnessPattern,
+       PatchStiffnessPattern, stiffness_field
 
 abstract type AbstractDensityPattern end
 
@@ -37,21 +37,27 @@ function initialize_density(info, pattern::UniformTissuePattern, geom)
     return CartesianMeshField(data, info)
 end
 
-struct SmoothPatchyTissuePattern <: AbstractDensityPattern
+struct PatchDensityPattern <: AbstractDensityPattern
     seed::String
     n_patches::Int
     minimum_density::Float64
 end
 
-function SmoothPatchyTissuePattern(; seed::String, n_patches=6, minimum_density=0.8)
+function PatchDensityPattern(; seed::String, n_patches=6, minimum_density=0.8)
     0.2 < minimum_density <= 1.0 || throw(ArgumentError("minimum density must be in (0.2, 1]"))
-    return SmoothPatchyTissuePattern(seed, n_patches, Float64(minimum_density))
+    return PatchDensityPattern(seed, n_patches, Float64(minimum_density))
 end
 
-function initialize_density(info, pattern::SmoothPatchyTissuePattern, geom)
-    rng = MersenneTwister(pattern.seed)
-    patches = [(rand(rng), rand(rng), 0.05 + 0.10rand(rng), 0.35 + 0.45rand(rng))
-               for _ in 1:pattern.n_patches]
+# ponytail: shared gaussian-patch core for density + stiffness, split if they diverge
+_make_patches(seed::String, n_patches) =
+    let rng = MersenneTwister(seed)
+        [(rand(rng), rand(rng), 0.05 + 0.10rand(rng), 0.35 + 0.45rand(rng))
+         for _ in 1:n_patches]
+    end
+_patch_value(saturation, minimum) = inv(1.0 + (inv(minimum) - 1.0) * saturation)
+
+function initialize_density(info, pattern::PatchDensityPattern, geom)
+    patches = _make_patches(pattern.seed, pattern.n_patches)
     nx, ny = info.dims
     dx, dy = info.spacing
     ox, oy = info.origin
@@ -64,38 +70,37 @@ function initialize_density(info, pattern::SmoothPatchyTissuePattern, geom)
         # universal reference density at one without encoding area in strain.
         expansion = sum(depth * exp(-((x - cx)^2 + (y - cy)^2) / (2width^2))
                         for (cx, cy, width, depth) in patches)
-        maximum_area = inv(pattern.minimum_density)
-        area = 1.0 + (maximum_area - 1.0) * (-expm1(-expansion))
-        data[idx] = inv(area)
+        data[idx] = _patch_value(-expm1(-expansion), pattern.minimum_density)
     end
     return CartesianMeshField(data, info)
 end
 
 # =============================================================================
-# Substrate friction α(x): static multiplier on the first-order velocity term
-# v⋅w in the Kelvin-Voigt weak form. Radial friction is larger at the centre of
-# the [0,1]² box and decreases toward its boundary; the formula is ported from
-# AMD_tools (VarForms.friction_coefficient).
+# Substrate stiffness α(x): static field; Φ(α) is the substrate friction
+# multiplying the first-order velocity term v⋅w in the Kelvin-Voigt weak form.
+# Radial stiffness is larger at the centre of the [0,1]² box and decreases
+# toward its boundary; the formula is ported from AMD_tools
+# (VarForms.friction_coefficient, historically a friction).
 # =============================================================================
 
-abstract type AbstractFrictionPattern end
+abstract type AbstractStiffnessPattern end
 
-struct UniformFrictionPattern <: AbstractFrictionPattern end
+struct UniformStiffnessPattern <: AbstractStiffnessPattern end
 
-struct RadialFrictionPattern <: AbstractFrictionPattern
+struct RadialStiffnessPattern <: AbstractStiffnessPattern
     center_coefficient::Float64
     boundary_coefficient::Float64
 end
 
-RadialFrictionPattern(; center_coefficient=1.0, boundary_coefficient=0.25) =
-    RadialFrictionPattern(Float64(center_coefficient), Float64(boundary_coefficient))
+RadialStiffnessPattern(; center_coefficient=1.0, boundary_coefficient=0.25) =
+    RadialStiffnessPattern(Float64(center_coefficient), Float64(boundary_coefficient))
 
-function friction_field(info, ::UniformFrictionPattern)
+function stiffness_field(info, ::UniformStiffnessPattern)
     data = ones(Float64, prod(info.dims))
     return CartesianMeshField(data, info)
 end
 
-function friction_field(info, pattern::RadialFrictionPattern)
+function stiffness_field(info, pattern::RadialStiffnessPattern)
     nx, ny = info.dims
     dx, dy = info.spacing
     ox, oy = info.origin
@@ -109,6 +114,33 @@ function friction_field(info, pattern::RadialFrictionPattern)
                 pattern.center_coefficient +
                 (pattern.boundary_coefficient - pattern.center_coefficient) * r
         end
+    end
+    return CartesianMeshField(data, info)
+end
+
+struct PatchStiffnessPattern <: AbstractStiffnessPattern
+    seed::String
+    n_patches::Int
+    minimum_stiffness::Float64
+end
+
+function PatchStiffnessPattern(; seed::String, n_patches=6, minimum_stiffness=0.25)
+    0.0 < minimum_stiffness <= 1.0 ||
+        throw(ArgumentError("minimum stiffness must be in (0, 1]"))
+    return PatchStiffnessPattern(seed, n_patches, Float64(minimum_stiffness))
+end
+
+function stiffness_field(info, pattern::PatchStiffnessPattern)
+    patches = _make_patches(pattern.seed, pattern.n_patches)
+    nx, ny = info.dims
+    dx, dy = info.spacing
+    ox, oy = info.origin
+    data = Vector{Float64}(undef, nx * ny)
+    @inbounds for j in 1:ny, i in 1:nx
+        x, y = ox + (i - 1) * dx, oy + (j - 1) * dy
+        expansion = sum(depth * exp(-((x - cx)^2 + (y - cy)^2) / (2width^2))
+                        for (cx, cy, width, depth) in patches)
+        data[(j - 1) * nx + i] = _patch_value(-expm1(-expansion), pattern.minimum_stiffness)
     end
     return CartesianMeshField(data, info)
 end

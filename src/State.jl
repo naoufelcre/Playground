@@ -8,6 +8,7 @@ end
 
 EvolvingDomains.Kinematic.get_velocity(v::FieldVelocity, x, t) = v.itp(x[1], x[2])
 EvolvingDomains.Kinematic.is_time_dependent(::FieldVelocity) = true
+(v::FieldVelocity)(x) = v.itp(x[1], x[2])
 
 """
     SimulationState

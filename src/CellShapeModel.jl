@@ -163,12 +163,15 @@ function main(; seed::String="seeded-holes-1",
         iteration_time = time() - iteration_start
 
         _, _, indicator = _observables!(state)
+        # ponytail: node quadrature masked by level set, not cut-cell quadrature
+        stress = CellShapeVarForm.stress_norm_squared(state, state.p, β)
         EvolvingDomains.plot(state.geom;
             field=indicator,
             label="density × principal strain difference - step $step, " *
                   "$(round(iteration_time; sigdigits=3)) s/iter, " *
                   "t = $(state.t) / $(run.horizon), " *
                   "max = $(round(maximum(indicator); sigdigits=3)), " *
+                  "∫|σ|² = $(round(stress; sigdigits=3)), " *
                   "threads = $(Threads.nthreads())")
         export_state!(step)
     end

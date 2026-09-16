@@ -28,7 +28,7 @@ get_V_ref(basis::PhysicalBasis) = basis.L_ref / basis.T_ref
 Compute adimensionalized parameters from physical values.
 - Y: Young Modulus [Pa]
 - ν: Poisson Ratio [-] (Protected against ν=0.5)
-- α: Substrate friction [Pa.s/m²]
+- α: Substrate stiffness [Pa] (Φ(α) is the substrate friction [Pa.s/m²])
 - η: Internal viscosity [Pa.s]
 - ζ: Active prestress [Pa]
 - m: Perthame pressure exponent (> 1)
@@ -44,8 +44,8 @@ function physical_parameters(; Y, ν, α, η, ζ, m::Int=2, L_ref=2.0)
     # E_ref corresponds to the plane strain scaling factor
     E_ref = Y / ((1.0 + ν) * (1.0 - 2.0 * ν))
 
-    # T_ref eliminates the substrate friction α: T_ref = α L² / E_ref
-    T_ref = α * L_ref^2 / E_ref
+    # T_ref eliminates the substrate friction Φ(α): T_ref = Φ(α) L² / E_ref
+    T_ref = Φ(α) * L_ref^2 / E_ref
 
     ξ = η / (T_ref * E_ref)
     A = ζ / E_ref

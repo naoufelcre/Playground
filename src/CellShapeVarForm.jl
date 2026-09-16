@@ -9,7 +9,7 @@ import DensityModel
 const SF = DensityModel.StaticForms
 const MIN_CONSTITUTIVE_DENSITY = 0.2
 
-export augment_form, evolve!, observables!
+export augment_form, evolve!, observables!, stress_norm_squared
 
 """
     augment_form(base, parameters, β)
@@ -92,6 +92,40 @@ function observables!(nematic_xx, nematic_xy, density_order, density, ε)
         density_order[i] = ρ[i] * hypot(difference, 2.0 * εxy[i])
     end
     return nematic_xx, nematic_xy, density_order
+end
+
+"""
+    stress_norm_squared(state, p, β)
+
+`∫Ω |σ|²` (Frobenius) with the augmented stress from `augment_form`: base
+`E(ε,ν) + A (ζ(ρ) + ζ_α(α))I` at clamped density plus area correction and
+`2Aβρ dev(ε)`. Node quadrature masked by the level set.
+"""
+function stress_norm_squared(state, p, β::Real)
+    β = Float64(β)
+    ρ = state.ρ.data
+    εxx, εyy, εxy = state.ε[1].data, state.ε[2].data, state.ε[3].data
+    α = state.α.data
+    ls = state.geom.levelset
+    dA = state.info.spacing[1] * state.info.spacing[2]
+    elastic = 1.0 - 2.0 * p.ν
+    s = 0.0
+    @inbounds for i in eachindex(ρ, α, ls)
+        ls[i] < 0 || continue
+        ρc = max(ρ[i], MIN_CONSTITUTIVE_DENSITY)
+        trace = εxx[i] + εyy[i]
+        pressure = Float64(p.A) * (DensityModel.ζ(ρc, p.m) + DensityModel.ζ_α(α[i], p.m))
+        area = 0.5 * (inv(ρc) - 1.0 - trace)
+        directional = 2.0 * Float64(p.A) * β * ρc
+        deviatoric_xx = 0.5 * (εxx[i] - εyy[i])
+        σxx = elastic * εxx[i] + p.ν * trace + pressure + area +
+              directional * deviatoric_xx
+        σyy = elastic * εyy[i] + p.ν * trace + pressure + area -
+              directional * deviatoric_xx
+        σxy = elastic * εxy[i] + directional * εxy[i]
+        s += σxx^2 + σyy^2 + 2.0 * σxy^2
+    end
+    return s * dA
 end
 
 end

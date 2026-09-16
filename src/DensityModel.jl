@@ -136,7 +136,7 @@ function main(; seed::String="seeded-holes-1", horizon=1.0,
     state, backend, run = initialize(; seed, horizon, nsteps)
     tmap = nothing
     step = 0
-    field_range = (0.4, 1.2)
+    stress_field = similar(state.ρ.data)
 
     function export_state!(frame, stride=save_stride)
         isnothing(output_dir) && return nothing
@@ -166,11 +166,15 @@ function main(; seed::String="seeded-holes-1", horizon=1.0,
         state.t = min(run.horizon, state.t + state.Δt)
         maintain_geometry!(state, run.reinit_freq, run.min_island_nodes, step)
         iteration_time = time() - iteration_start
-        EvolvingDomains.plot(state.geom; field=state.ρ.data,colorrange=field_range,
-            label="density - step $step, " *
+        # ponytail: node quadrature masked by level set, not cut-cell quadrature
+        stress = stress_norm_squared(state)
+        stress_field!(stress_field, state)
+        EvolvingDomains.plot(state.geom; field=stress_field,
+            label="stress |σ| - step $step, " *
                   "$(round(iteration_time; sigdigits=3)) s/iter, " *
-                  "t = $(state.t) / $(run.horizon), " *
+                  "t = ~$(round(state.t;sigdigits=4)) / $(run.horizon), " *
                   "CFL = $(round(timestep.cfl; sigdigits=3)), " *
+                  "∫|σ|² = $(round(stress; sigdigits=3)), " *
                   "threads = $(Threads.nthreads())")
         export_state!(step)
     end
@@ -218,6 +222,12 @@ function cli_main(input::IO=stdin, output::IO=stdout, error_output::IO=stderr)::
         println(error_output, "Error: ", sprint(showerror, exception))
         return 1
     end
+end
+
+function julia_main()::Cint
+    Base.invokelatest(
+        Base.include, Main, joinpath(pkgdir(DensityModel), "src", "CellShapeModel.jl"))
+    return Base.invokelatest(getfield(Main, :CellShapeModel).cli_main)
 end
 
 
