@@ -47,8 +47,7 @@ end
 
 function discretize!(b::ProjectedBackend, state)
     cutgeo = ensure_cut!(state.geom)
-    aggregates = aggregate(
-        AggregateCutCellsByThreshold(1.0), cutgeo)
+    aggregates = aggregate_cut_cells(cutgeo)
     if isnothing(b.plan)
         b.plan = StaticAssembler.StaticSystem(
             state.geom.grid, cutgeo, aggregates,

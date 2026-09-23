@@ -89,6 +89,34 @@ function stress_norm_squared(state)
 end
 
 """
+    von_mises_stress(state)
+
+`∫Ω σ_vm` with the same `σ` as `stress_norm_squared` and the plane von
+Mises stress `σ_vm² = σxx² - σxx*σyy + σyy² + 3σxy²`.
+Node quadrature on the extended grid masked by the level set (`ls < 0`).
+"""
+function von_mises_stress(state)
+    ρ = state.ρ.data
+    εxx, εyy, εxy = state.ε[1].data, state.ε[2].data, state.ε[3].data
+    α = state.α.data
+    ls = state.geom.levelset
+    p = state.p
+    dA = state.info.spacing[1] * state.info.spacing[2]
+    elastic = 1.0 - 2.0 * p.ν
+    s = 0.0
+    @inbounds for i in eachindex(ρ, α, ls)
+        ls[i] < 0 || continue
+        trace = εxx[i] + εyy[i]
+        pressure = p.A * (ζ(ρ[i], p.m) + ζ_α(α[i], p.m))
+        σxx = elastic * εxx[i] + p.ν * trace + pressure
+        σyy = elastic * εyy[i] + p.ν * trace + pressure
+        σxy = elastic * εxy[i]
+        s += sqrt(max(σxx^2 - σxx * σyy + σyy^2 + 3.0 * σxy^2, 0.0))
+    end
+    return s * dA
+end
+
+"""
     stress_field!(out, state)
 
 Per-node Frobenius norm `|σ|` with the same `σ` as `stress_norm_squared`.

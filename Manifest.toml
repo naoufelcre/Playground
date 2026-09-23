@@ -658,7 +658,7 @@ uuid = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
 version = "1.0.7"
 
 [[deps.EvolvingDomains]]
-deps = ["Gridap", "GridapEmbedded", "Interpolations", "LinearAlgebra", "StaticArrays", "TransferOperator"]
+deps = ["Gridap", "GridapEmbedded", "Interpolations", "LinearAlgebra", "Printf", "StaticArrays", "TransferOperator"]
 path = "../EvolvingDomains.jl"
 uuid = "f9bd8acb-b7a8-42b3-8348-bb9bbfd76943"
 version = "0.4.0"

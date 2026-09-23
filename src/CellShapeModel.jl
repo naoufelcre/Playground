@@ -63,10 +63,12 @@ function _write_nematic_config(output_dir, β)
             "reference_density" => 1.0,
             "constitutive_density_floor" => CellShapeVarForm.MIN_CONSTITUTIVE_DENSITY,
             "directional_activity" => β,
+            "substrate" => "static stiffness α(x); friction Φ(α), contraction A*ζ_α(α)",
+            "directional_activity_coupling" => "β independent of α",
             "area" => "1 / density",
             "shape" => "dev(strain)",
             "active_stress" =>
-                "A * (zeta_m(density) * I + 2 * beta * density * dev(strain))",
+                "A * ((zeta_m(density) + zeta_alpha(alpha)) * I + 2 * beta * density * dev(strain))",
             "relaxation" => "mechanical deformation only",
             "indicator" => "density * principal strain difference",
             "postprocessing" => Dict(
@@ -91,15 +93,18 @@ function _observables!(state)
     )
 end
 
-function _constitutive_coefficients(state, base_coefficients)
+function _constitutive_coefficients(state, _base_coefficients)
     density = EvolvingDomains.extend(state.geom, state.ρ)
     strain = ntuple(i -> EvolvingDomains.extend(state.geom, state.ε[i]), 3)
+    # ponytail: closest-point extension like ρ/ε so cut-cell quadrature samples
+    # tissue-adjacent α instead of the arbitrary background pattern value
+    stiffness = EvolvingDomains.extend(state.geom, state.α)
     return (
         density.data,
         strain[1].data,
         strain[2].data,
         strain[3].data,
-        base_coefficients[5],
+        stiffness.data,
     )
 end
 
@@ -107,7 +112,9 @@ end
     main(; seed, β=1, ...)
 
 Run the opt-in active density-strain Kelvin-Voigt model. Density represents
-cell area through `1/ρ`; `dev(ε)` is the small shape strain.
+cell area through `1/ρ`; `dev(ε)` is the small shape strain. Substrate
+stiffness `α` is inherited from the base form (`Φ(α)` friction,
+`A ζ_α(α)` contraction); `β` stays independent of `α`.
 """
 function main(; seed::String="seeded-holes-1",
               β=DEFAULT_DIRECTIONAL_ACTIVITY,
@@ -126,6 +133,14 @@ function main(; seed::String="seeded-holes-1",
     backend = DensityModel.ProjectedBackend(form=form)
     tmap = nothing
     step = 0
+    field_range = (0.0, 0.25)
+    stress_field = similar(state.ρ.data)
+    stress_time = Float64[]
+    stress_hist = Float64[]
+    vm_hist = Float64[]
+    mass_hist = Float64[]
+    meandens_hist = Float64[]
+    rel(v) = (r = first(v); iszero(r) ? v : v ./ r)
     sim_id = isnothing(output_dir) ? "nematic" : basename(normpath(output_dir))
 
     function export_state!(frame, stride=save_stride)
@@ -162,15 +177,35 @@ function main(; seed::String="seeded-holes-1",
             state, run.reinit_freq, run.min_island_nodes, step)
         iteration_time = time() - iteration_start
 
-        _, _, indicator = _observables!(state)
         # ponytail: node quadrature masked by level set, not cut-cell quadrature
         stress = CellShapeVarForm.stress_norm_squared(state, state.p, β)
-        EvolvingDomains.plot(state.geom;
-            field=indicator,
-            label="density × principal strain difference - step $step, " *
+        CellShapeVarForm.stress_field!(stress_field, state, state.p, β)
+        push!(stress_time, state.t)
+        push!(stress_hist, stress)
+        push!(vm_hist, CellShapeVarForm.von_mises_stress(state, state.p, β))
+        ρd = state.ρ.data
+        lsv = state.geom.levelset
+        n_in = 0
+        m_in = 0.0
+        @inbounds for i in eachindex(ρd, lsv)
+            if lsv[i] < 0
+                n_in += 1
+                m_in += ρd[i]
+            end
+        end
+        dA = state.info.spacing[1] * state.info.spacing[2]
+        push!(mass_hist, m_in * dA)
+        push!(meandens_hist, m_in / n_in)
+        Y = hcat(rel(stress_hist), rel(vm_hist), rel(mass_hist), rel(meandens_hist))
+        EvolvingDomains.plot(state.geom, stress_time, Y;
+            field=stress_field, colorrange=field_range,
+            labels=["∫|σ|²", "∫σ_vm", "mass", "mean ρ"],
+            ylabel="value / value₀", curvetitle="relative traces",
+            xrange=(0.0, run.horizon),
+            label="stress |σ| - step $step, " *
                   "$(round(iteration_time; sigdigits=3)) s/iter, " *
-                  "t = $(state.t) / $(run.horizon), " *
-                  "max = $(round(maximum(indicator); sigdigits=3)), " *
+                  "t = ~$(round(state.t;sigdigits=4)) / $(run.horizon), " *
+                  "CFL = $(round(timestep.cfl; sigdigits=3)), " *
                   "∫|σ|² = $(round(stress; sigdigits=3)), " *
                   "threads = $(Threads.nthreads())")
         export_state!(step)

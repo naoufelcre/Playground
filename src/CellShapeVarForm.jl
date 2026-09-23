@@ -9,20 +9,24 @@ import DensityModel
 const SF = DensityModel.StaticForms
 const MIN_CONSTITUTIVE_DENSITY = 0.2
 
-export augment_form, evolve!, observables!, stress_norm_squared
+export augment_form, evolve!, observables!, stress_norm_squared, stress_field!,
+    von_mises_stress
 
 """
     augment_form(base, parameters, β)
 
 Replace the base form's infinitesimal area strain by `1/ρ - 1` and add the
-directional active stress `2Aβρ dev(ε)`. No coefficient fields are added.
+directional active stress `2Aβρ dev(ε)`. Substrate stiffness is inherited
+unchanged from the base form: `Φ(α)` friction in the bilinear term and
+`A ζ_α(α)` contraction via `base_source`. `α` (coefficient 5) is forwarded
+as-is; only `ρ` is clamped. `β` stays independent of `α`.
 """
 function augment_form(base, parameters, β::Real)
     β = Float64(β)
     isfinite(β) && β >= 0 ||
         throw(ArgumentError("β must be finite and nonnegative"))
     base.ncoefficients == 5 ||
-        throw(ArgumentError("density-strain augmentation requires five coefficients"))
+        throw(ArgumentError("density-strain augmentation requires five coefficients (ρ, ε×3, α)"))
     length(base.rhs) == 1 && base.rhs[1].test_operator isa SF.SymGradOp ||
         throw(ArgumentError("density-strain augmentation requires one symmetric-stress RHS"))
 
@@ -31,11 +35,12 @@ function augment_form(base, parameters, β::Real)
         function (c)
             ρ = max(c[1], MIN_CONSTITUTIVE_DENSITY)
             εxx, εyy, εxy = c[2], c[3], c[4]
+            α = c[5]
             trace = εxx + εyy
             deviatoric_xx = 0.5 * (εxx - εyy)
             area_correction = 0.5 * (inv(ρ) - 1.0 - trace)
             directional = 2.0 * activity * β * ρ
-            coefficients = (ρ, εxx, εyy, εxy, c[5])
+            coefficients = (ρ, εxx, εyy, εxy, α)
             return base_source(coefficients) + SF.symtensor(
                 area_correction + directional * deviatoric_xx,
                 area_correction - directional * deviatoric_xx,
@@ -124,6 +129,75 @@ function stress_norm_squared(state, p, β::Real)
               directional * deviatoric_xx
         σxy = elastic * εxy[i] + directional * εxy[i]
         s += σxx^2 + σyy^2 + 2.0 * σxy^2
+    end
+    return s * dA
+end
+
+"""
+    stress_field!(out, state, p, β)
+
+Per-node Frobenius norm `|σ|` with the same augmented `σ` as
+`stress_norm_squared`. Nodes with `ls >= 0` are set to `NaN` so
+terminal-plot autoscaling only sees the tissue.
+"""
+function stress_field!(out, state, p, β::Real)
+    β = Float64(β)
+    ρ = state.ρ.data
+    εxx, εyy, εxy = state.ε[1].data, state.ε[2].data, state.ε[3].data
+    α = state.α.data
+    ls = state.geom.levelset
+    elastic = 1.0 - 2.0 * p.ν
+    @inbounds for i in eachindex(out, ρ, α, ls)
+        if ls[i] < 0
+            ρc = max(ρ[i], MIN_CONSTITUTIVE_DENSITY)
+            trace = εxx[i] + εyy[i]
+            pressure = Float64(p.A) * (DensityModel.ζ(ρc, p.m) + DensityModel.ζ_α(α[i], p.m))
+            area = 0.5 * (inv(ρc) - 1.0 - trace)
+            directional = 2.0 * Float64(p.A) * β * ρc
+            deviatoric_xx = 0.5 * (εxx[i] - εyy[i])
+            σxx = elastic * εxx[i] + p.ν * trace + pressure + area +
+                  directional * deviatoric_xx
+            σyy = elastic * εyy[i] + p.ν * trace + pressure + area -
+                  directional * deviatoric_xx
+            σxy = elastic * εxy[i] + directional * εxy[i]
+            out[i] = sqrt(σxx^2 + σyy^2 + 2.0 * σxy^2)
+        else
+            out[i] = NaN
+        end
+    end
+    return out
+end
+
+"""
+    von_mises_stress(state, p, β)
+
+`∫Ω σ_vm` with the same augmented `σ` as `stress_norm_squared` and the
+plane von Mises stress `σ_vm² = σxx² - σxx*σyy + σyy² + 3σxy²`.
+Node quadrature masked by the level set.
+"""
+function von_mises_stress(state, p, β::Real)
+    β = Float64(β)
+    ρ = state.ρ.data
+    εxx, εyy, εxy = state.ε[1].data, state.ε[2].data, state.ε[3].data
+    α = state.α.data
+    ls = state.geom.levelset
+    dA = state.info.spacing[1] * state.info.spacing[2]
+    elastic = 1.0 - 2.0 * p.ν
+    s = 0.0
+    @inbounds for i in eachindex(ρ, α, ls)
+        ls[i] < 0 || continue
+        ρc = max(ρ[i], MIN_CONSTITUTIVE_DENSITY)
+        trace = εxx[i] + εyy[i]
+        pressure = Float64(p.A) * (DensityModel.ζ(ρc, p.m) + DensityModel.ζ_α(α[i], p.m))
+        area = 0.5 * (inv(ρc) - 1.0 - trace)
+        directional = 2.0 * Float64(p.A) * β * ρc
+        deviatoric_xx = 0.5 * (εxx[i] - εyy[i])
+        σxx = elastic * εxx[i] + p.ν * trace + pressure + area +
+              directional * deviatoric_xx
+        σyy = elastic * εyy[i] + p.ν * trace + pressure + area -
+              directional * deviatoric_xx
+        σxy = elastic * εxy[i] + directional * εxy[i]
+        s += sqrt(max(σxx^2 - σxx * σyy + σyy^2 + 3.0 * σxy^2, 0.0))
     end
     return s * dA
 end

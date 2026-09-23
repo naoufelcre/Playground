@@ -20,7 +20,6 @@ include("Parameters.jl");include("Geom.jl")
 include("StaticForms.jl");using .StaticForms;include("DensityVarForm.jl")
 include("Helpers/Helpers.jl");using .Helpers
 include("TensorHelpers.jl");using .TensorHelpers
-include("Helpers/AggregationStrategy.jl")
 include("blocks/InitBlock.jl")
 include("State.jl");include("Backends.jl");include("Evolution.jl")
 include("blocks/ExportBlock.jl")
@@ -136,7 +135,14 @@ function main(; seed::String="seeded-holes-1", horizon=1.0,
     state, backend, run = initialize(; seed, horizon, nsteps)
     tmap = nothing
     step = 0
+    field_range = (0.0, 0.125)
     stress_field = similar(state.ρ.data)
+    stress_time = Float64[]
+    stress_hist = Float64[]
+    vm_hist = Float64[]
+    mass_hist = Float64[]
+    meandens_hist = Float64[]
+    rel(v) = (r = first(v); iszero(r) ? v : v ./ r)
 
     function export_state!(frame, stride=save_stride)
         isnothing(output_dir) && return nothing
@@ -169,7 +175,28 @@ function main(; seed::String="seeded-holes-1", horizon=1.0,
         # ponytail: node quadrature masked by level set, not cut-cell quadrature
         stress = stress_norm_squared(state)
         stress_field!(stress_field, state)
-        EvolvingDomains.plot(state.geom; field=stress_field,
+        push!(stress_time, state.t)
+        push!(stress_hist, stress)
+        push!(vm_hist, von_mises_stress(state))
+        ρd = state.ρ.data
+        lsv = state.geom.levelset
+        n_in = 0
+        m_in = 0.0
+        @inbounds for i in eachindex(ρd, lsv)
+            if lsv[i] < 0
+                n_in += 1
+                m_in += ρd[i]
+            end
+        end
+        dA = state.info.spacing[1] * state.info.spacing[2]
+        push!(mass_hist, m_in * dA)
+        push!(meandens_hist, m_in / n_in)
+        Y = hcat(rel(stress_hist), rel(vm_hist), rel(mass_hist), rel(meandens_hist))
+        EvolvingDomains.plot(state.geom, stress_time, Y;
+            field=stress_field, colorrange=field_range,
+            labels=["∫|σ|²", "∫σ_vm", "mass", "mean ρ"],
+            ylabel="value / value₀", curvetitle="relative traces",
+            xrange=(0.0, run.horizon),
             label="stress |σ| - step $step, " *
                   "$(round(iteration_time; sigdigits=3)) s/iter, " *
                   "t = ~$(round(state.t;sigdigits=4)) / $(run.horizon), " *
